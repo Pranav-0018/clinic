@@ -1,0 +1,1 @@
+{'output_text': 'cervical spondylosis', 'input_text': "I've been having a lot of pain in my neck and back. I've also been having trouble with my balance and coordination. I've been coughing a lot and my limbs feel weak."}

@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinical Document Classification & STG Compliance Extraction System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #0b1120; color: #f1f5f9; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .glass-panel { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.6); }
+    .glass-card { background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(51, 65, 85, 0.5); }
+    .gradient-border-red { border-left: 4px solid #ef4444; }
+    .gradient-border-green { border-left: 4px solid #10b981; }
+    .gradient-border-yellow { border-left: 4px solid #f59e0b; }
+    .gradient-border-blue { border-left: 4px solid #3b82f6; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b1120; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .bbox-highlight { border: 2px solid #38bdf8; background-color: rgba(56, 189, 248, 0.2); position: absolute; pointer-events: none; transition: all 0.2s ease; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- TOP HEADER -->
+  <header class="glass-panel sticky top-0 z-50 px-6 py-3 border-b border-slate-700/80 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <i class="fa-solid fa-notes-medical text-white text-xl"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-base font-bold text-white tracking-tight">Clinical Document Ingestion & STG Compliance Engine</h1>
+          <span class="px-2 py-0.5 text-xs font-semibold rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">PBL 1 Real Prototype</span>
+        </div>
+        <p class="text-xs text-slate-400">Quality Gating • Unit 2 ML Classification • Clinical NER • ICMR/MoHFW Guideline Rule Engine</p>
+      </div>
+    </div>
+
+    <!-- CONTROLS & TABS -->
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2 bg-slate-900/80 p-1 rounded-lg border border-slate-700">
+        <label class="text-xs text-slate-400 pl-2">ML Model:</label>
+        <select id="modelSelector" class="bg-slate-800 text-xs text-cyan-300 rounded px-2 py-1 outline-none border border-slate-600 font-medium">
+          <option value="Logistic Regression">Logistic Regression (Calibrated)</option>
+          <option value="Linear Discriminant Analysis">Linear Discriminant Analysis (LDA)</option>
+          <option value="Decision Tree">Decision Tree (Cart Max-Depth 6)</option>
+          <option value="Random Forest">Random Forest (Ensemble)</option>
+        </select>
+      </div>
+
+      <div class="flex rounded-lg bg-slate-800/80 p-1 border border-slate-700">
+        <button id="tabPipelineBtn" onclick="switchTab('pipeline')" class="px-3 py-1.5 rounded-md text-xs font-semibold bg-cyan-600 text-white shadow-sm flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-stethoscope"></i>
+          <span>Live Ingestion Pipeline</span>
+        </button>
+        <button id="tabAnalyticsBtn" onclick="switchTab('analytics')" class="px-3 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Unit 2 Analytics & Rubric</span>
+        </button>
+      </div>
+
+      <div class="flex items-center space-x-2 pl-2 border-l border-slate-700 text-xs">
+        <span class="flex h-2 w-2 relative">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="text-slate-300 font-mono">Backend: Online</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW CONTAINER -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- LEFT SIDEBAR: DOCUMENT SELECTOR & UPLOAD -->
+    <aside class="w-80 glass-panel border-r border-slate-800 flex flex-col p-4 space-y-4 shrink-0 overflow-y-auto">
+      <div>
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
+          <span>Clinical Test Presets</span>
+          <span class="text-[10px] text-cyan-400 font-normal">5 Bootstrapped Cases</span>
+        </h2>
+        <div id="sampleList" class="space-y-2">
+          <!-- Populated dynamically via JS -->
+          <div class="text-xs text-slate-500 py-3 text-center">Loading sample cases...</div>
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-800">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Upload Document</h2>
+        <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-xl p-4 text-center cursor-pointer transition bg-slate-900/40 group">
+          <input type="file" id="fileInput" class="hidden" accept="image/*,.pdf" />
+          <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-500 group-hover:text-cyan-400 transition mb-2"></i>
+          <p class="text-xs text-slate-300 font-medium">Drag & drop or browse</p>
+          <p class="text-[10px] text-slate-500 mt-1">Prescription, Lab Report, Discharge Summary (PNG, JPG)</p>
+        </div>
+      </div>
+
+      <!-- PIPELINE OVERVIEW MINI-DIAGRAM -->
+      <div class="pt-2 border-t border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+        <div class="font-semibold text-slate-300 text-xs">PBL Pipeline Flow:</div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Quality Gate (Laplacian Blur & Skew)</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Deskew & Otsu Binarization</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Unit 2 Multiclass Classification</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Spatial OCR + Token Confidence</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Clinical Structured Field Extraction</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>ICMR STG Guideline & Safety Audit</span></div>
+        <div class="flex items-center space-x-1.5 text-slate-400"><i class="fa-solid fa-check text-cyan-400 text-[10px]"></i><span>Provenance Tracking & Clinician Sign-off</span></div>
+      </div>
+    </aside>
+
+    <!-- CENTER & RIGHT: TAB 1 PIPELINE VIEW -->
+    <main id="pipelineView" class="flex-1 flex overflow-hidden">
+      
+      <!-- DOCUMENT VIEWER COLUMN -->
+      <div class="w-5/12 border-r border-slate-800 flex flex-col bg-slate-950/50 p-4 overflow-y-auto">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-bold text-slate-300 uppercase tracking-wide">Document Canvas</span>
+            <span id="canvasTypeBadge" class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">Prescription</span>
+            <span id="canvasDatasetBadge" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold font-mono">REAL DATASET</span>
+          </div>
+          <!-- VIEW TOGGLE -->
+          <div class="flex rounded bg-slate-800 p-0.5 text-[11px] border border-slate-700">
+            <button id="viewRawBtn" onclick="toggleImageView('raw')" class="px-2 py-0.5 rounded bg-cyan-600 text-white font-medium">Original</button>
+            <button id="viewDeskewedBtn" onclick="toggleImageView('deskewed')" class="px-2 py-0.5 rounded text-slate-400 hover:text-white font-medium">Deskewed</button>
+            <button id="viewBinaryBtn" onclick="toggleImageView('binary')" class="px-2 py-0.5 rounded text-slate-400 hover:text-white font-medium">Otsu Binary</button>
+          </div>
+        </div>
+
+        <!-- CANVAS WRAPPER -->
+        <div class="relative bg-slate-900 rounded-xl border border-slate-700 flex items-center justify-center p-2 min-h-[500px] overflow-hidden">
+          <div id="imageContainer" class="relative inline-block max-w-full">
+            <img id="mainDocImage" src="" alt="Document" class="max-h-[720px] rounded object-contain shadow-2xl transition duration-200" />
+            <div id="bboxOverlay" class="absolute inset-0 pointer-events-none"></div>
+          </div>
+          <div id="imagePlaceholder" class="text-center text-slate-500 p-8">
+            <i class="fa-solid fa-file-invoice text-4xl mb-2 text-slate-600"></i>
+            <p class="text-xs">Select a sample case or upload an image to begin.</p>
+          </div>
+        </div>
+
+        <!-- OCR TEXT INSPECTION ACCORDION -->
+        <div class="mt-4 glass-card rounded-xl p-3 border border-slate-700">
+          <div class="flex items-center justify-between cursor-pointer" onclick="toggleOcrDrawer()">
+            <span class="text-xs font-bold text-slate-300 flex items-center space-x-2">
+              <i class="fa-solid fa-align-left text-cyan-400"></i>
+              <span>Extracted OCR Transcript & Tokens</span>
+            </span>
+            <span id="ocrMetaBadge" class="text-[10px] font-mono text-cyan-300">0 Tokens | 0% Conf</span>
+          </div>
+          <div id="ocrDrawer" class="hidden mt-2 pt-2 border-t border-slate-700/60 max-h-40 overflow-y-auto">
+            <pre id="ocrFullText" class="text-[11px] text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">No OCR extracted yet.</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- AUDIT & EXTRACTION COLUMN -->
+      <div class="flex-1 p-5 overflow-y-auto space-y-5 bg-slate-950/20">
+
+        <!-- STG COMPLIANCE BANNER (HIGHLIGHT) -->
+        <div id="stgBanner" class="rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-slate-900 border-slate-700">
+          <div class="flex items-start space-x-3.5">
+            <div id="stgIconWrapper" class="w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-slate-800 text-slate-400">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span id="stgStatusText" class="text-sm font-extrabold uppercase tracking-wide text-slate-200">Awaiting Ingestion</span>
+                <span id="stgScoreBadge" class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Agreement: --%</span>
+              </div>
+              <p id="stgSummarySubtitle" class="text-xs text-slate-400 mt-0.5">Select a clinical case from the sidebar to inspect STG guideline safety compliance.</p>
+            </div>
+          </div>
+          <button onclick="openClinicianReviewModal()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-md flex items-center space-x-1.5 transition">
+            <i class="fa-solid fa-user-doctor"></i>
+            <span>Clinician Review</span>
+          </button>
+        </div>
+
+        <!-- 3-WAY METRICS CARDS: QUALITY, CLASSIFICATION, TRIAGE -->
+        <div class="grid grid-cols-3 gap-4">
+
+          <!-- 1. QUALITY ASSESSMENT GATE -->
+          <div class="glass-card rounded-xl p-3.5 border border-slate-700">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                <i class="fa-solid fa-camera text-cyan-400"></i>
+                <span>Quality Gate</span>
+              </span>
+              <span id="qualityBadge" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">--</span>
+            </div>
+            <div class="space-y-1.5 text-xs">
+              <div class="flex justify-between items-center text-slate-300">
+                <span class="text-slate-400">Laplacian Var (Blur):</span>
+                <span id="valLaplacian" class="font-mono font-semibold">--</span>
+              </div>
+              <div class="flex justify-between items-center text-slate-300">
+                <span class="text-slate-400">Skew Angle:</span>
+                <span id="valSkew" class="font-mono font-semibold">--</span>
+              </div>
+              <div class="flex justify-between items-center text-slate-300">
+                <span class="text-slate-400">RMS Contrast:</span>
+                <span id="valContrast" class="font-mono font-semibold">--</span>
+              </div>
+              <div class="flex justify-between items-center text-slate-300">
+                <span class="text-slate-400">FFT High-Freq:</span>
+                <span id="valHfRatio" class="font-mono font-semibold">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. DOCUMENT CLASSIFICATION -->
+          <div class="glass-card rounded-xl p-3.5 border border-slate-700">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                <i class="fa-solid fa-folder-tree text-blue-400"></i>
+                <span>Document Type</span>
+              </span>
+              <span id="classConfBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300">--%</span>
+            </div>
+            <div class="text-sm font-bold text-white mb-1" id="valDocClass">--</div>
+            <p class="text-[11px] text-slate-400" id="valModelUsed">Model: --</p>
+            <div class="mt-2 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div id="classProbBar" class="bg-gradient-to-r from-blue-500 to-cyan-400 h-1.5 rounded-full" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- 3. TRIAGE QUEUE & PROVENANCE -->
+          <div class="glass-card rounded-xl p-3.5 border border-slate-700">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5">
+                <i class="fa-solid fa-route text-amber-400"></i>
+                <span>Triage Queue</span>
+              </span>
+              <span id="triageBadge" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">--</span>
+            </div>
+            <div class="text-xs text-slate-300 space-y-1">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Field Confidence:</span>
+                <span id="valFieldConf" class="font-mono font-semibold text-emerald-400">--%</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Provenance Hash:</span>
+                <span id="valProvHash" class="font-mono text-cyan-400 text-[10px]">--</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Audit Status:</span>
+                <span id="valTriageStatus" class="font-semibold text-slate-300">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STG AUDIT RULES DETAIL ACCORDION -->
+        <div class="glass-panel rounded-xl p-4 border border-slate-700/80">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
+              <i class="fa-solid fa-book-medical text-cyan-400"></i>
+              <span>ICMR / MoHFW Standard Treatment Guideline Safety Audit</span>
+            </h3>
+            <span id="ruleCountBadge" class="text-[11px] font-mono text-slate-400">0 Rules Evaluated</span>
+          </div>
+          <div id="stgAuditList" class="space-y-2.5">
+            <div class="text-xs text-slate-500 py-4 text-center">No guideline rules evaluated yet.</div>
+          </div>
+        </div>
+
+        <!-- STRUCTURED CLINICAL ENTITIES -->
+        <div class="glass-panel rounded-xl p-4 border border-slate-700/80">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
+              <i class="fa-solid fa-table-list text-cyan-400"></i>
+              <span>Structured Clinical Fields & Provenance Tracing</span>
+            </h3>
+            <span class="text-[10px] text-slate-400">Hover over rows to highlight image bounding box</span>
+          </div>
+
+          <!-- PATIENT & ENCOUNTER CARD -->
+          <div class="grid grid-cols-4 gap-3 bg-slate-900/60 p-3 rounded-lg border border-slate-800 text-xs mb-3">
+            <div>
+              <span class="text-slate-500 block text-[10px] uppercase font-semibold">Patient Name</span>
+              <span id="fieldPtName" class="font-semibold text-slate-200">--</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block text-[10px] uppercase font-semibold">Age / Gender</span>
+              <span id="fieldPtAgeGen" class="font-semibold text-slate-200">--</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block text-[10px] uppercase font-semibold">UHID / MRN</span>
+              <span id="fieldPtUhid" class="font-mono text-cyan-300">--</span>
+            </div>
+            <div>
+              <span class="text-slate-500 block text-[10px] uppercase font-semibold">Physician / Date</span>
+              <span id="fieldPtDoc" class="font-semibold text-slate-200">--</span>
+            </div>
+          </div>
+
+          <!-- PRESCRIPTIONS & LABS TABS/TABLE -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                  <th class="py-2 px-3">Field Group</th>
+                  <th class="py-2 px-3">Extracted Entity / Medication</th>
+                  <th class="py-2 px-3">Dosage / Result</th>
+                  <th class="py-2 px-3">Confidence</th>
+                  <th class="py-2 px-3">Provenance Status</th>
+                </tr>
+              </thead>
+              <tbody id="provenanceTableBody" class="divide-y divide-slate-800/60 text-slate-300">
+                <tr><td colspan="5" class="py-4 text-center text-slate-500">No entities extracted yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- CENTER & RIGHT: TAB 2 ANALYTICS & RUBRIC VIEW -->
+    <main id="analyticsView" class="hidden flex-1 p-6 overflow-y-auto space-y-6 bg-slate-950/40">
+      
+      <!-- RUBRIC MAPPING CARD -->
+      <div class="glass-panel rounded-xl p-5 border border-slate-700">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+            <h2 class="text-base font-bold text-white">PBL 1 Rubric Mapping & Unit 2 Theoretical Grounding (20 Marks)</h2>
+          </div>
+          <span class="px-2.5 py-1 text-xs font-semibold rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">Academic Alignment</span>
+        </div>
+        <div class="grid grid-cols-5 gap-3 text-xs">
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+            <div class="font-bold text-cyan-300">1. Problem & Data (4 M)</div>
+            <p class="text-slate-400 mt-1 text-[11px]">Surrogate public corpora (CORD, RVL-CDIP, IAM) stand in for gated MIMIC-III/n2c2 clinical documents.</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+            <div class="font-bold text-cyan-300">2. EDA & Insights (4 M)</div>
+            <p class="text-slate-400 mt-1 text-[11px]">9 image & morphological features (Laplacian var, edge density, entropy, FFT hf-ratio, line items).</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+            <div class="font-bold text-cyan-300">3. Unit 2 Models (4 M)</div>
+            <p class="text-slate-400 mt-1 text-[11px]">Gaussian MLE biased variance walkthrough, Logistic Regression, LDA discriminant, Decision Tree.</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+            <div class="font-bold text-cyan-300">4. Comparative Eval (4 M)</div>
+            <p class="text-slate-400 mt-1 text-[11px]">Accuracy, Precision, Recall, Macro F1, Multi-class ROC-AUC, and Expected Calibration Error (ECE &lt; 0.05).</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+            <div class="font-bold text-cyan-300">5. Presentation & Split (4 M)</div>
+            <p class="text-slate-400 mt-1 text-[11px]">4-member defense structure with hand-off lines, live prototype demonstration, and limitation defense.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- UNIT 2 MODEL BENCHMARK TABLE -->
+      <div class="glass-panel rounded-xl p-5 border border-slate-700">
+        <h3 class="text-sm font-bold text-white mb-3 flex items-center space-x-2">
+          <i class="fa-solid fa-square-poll-vertical text-cyan-400"></i>
+          <span>Unit 2 Classifier Performance Benchmark (Held-out Test Split)</span>
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-700 bg-slate-900/80 text-slate-300 uppercase font-semibold text-[11px]">
+                <th class="py-2.5 px-3">Classifier Algorithm</th>
+                <th class="py-2.5 px-3">Accuracy</th>
+                <th class="py-2.5 px-3">Precision (Macro)</th>
+                <th class="py-2.5 px-3">Recall (Macro)</th>
+                <th class="py-2.5 px-3">Macro F1</th>
+                <th class="py-2.5 px-3">ROC-AUC (OVR)</th>
+                <th class="py-2.5 px-3">ECE (Target &lt; 0.05)</th>
+                <th class="py-2.5 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="metricsTableBody" class="divide-y divide-slate-800 text-slate-300">
+              <tr><td colspan="8" class="py-4 text-center text-slate-500">Loading benchmark metrics...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 2-COLUMN: GAUSSIAN MLE MATH & LIMITATION DEFENSE -->
+      <div class="grid grid-cols-2 gap-5">
+        
+        <!-- MEMBER 2 GAUSSIAN MLE DEMO -->
+        <div class="glass-card rounded-xl p-4 border border-slate-700">
+          <h4 class="text-xs font-bold text-cyan-300 uppercase tracking-wide mb-2 flex items-center space-x-1.5">
+            <i class="fa-solid fa-calculator"></i>
+            <span>Member 2: Gaussian Maximum Likelihood Estimation (MLE)</span>
+          </h4>
+          <p class="text-xs text-slate-400 mb-3">
+            Mathematical parameter estimation on the <code class="text-cyan-300">laplacian_var</code> feature.
+          </p>
+          <div class="space-y-2 text-xs font-mono bg-slate-950 p-3 rounded-lg border border-slate-800 text-slate-300">
+            <div class="flex justify-between">
+              <span class="text-slate-400">Mean &mu;<sub>MLE</sub>:</span>
+              <span id="mleMu" class="text-cyan-400 font-bold">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">Variance &sigma;<sup>2</sup><sub>MLE</sub> (Biased, &divide; n):</span>
+              <span id="mleVar" class="text-amber-400 font-bold">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">Unbiased Sample Variance s<sup>2</sup> (&divide; n-1):</span>
+              <span id="mleUnbiased" class="text-emerald-400 font-bold">--</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-400">Bias Ratio (n-1)/n:</span>
+              <span id="mleBias" class="text-purple-400 font-bold">--</span>
+            </div>
+          </div>
+          <div class="mt-3 text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+            <strong class="text-slate-300">Key Viva Defense Line:</strong> "Gaussian MLE maximizes &prod; N(x<sub>i</sub>; &mu;, &sigma;<sup>2</sup>). The MLE variance is mathematically biased because the true mean &mu; is replaced with sample estimate x̄, costing 1 degree of freedom."
+          </div>
+        </div>
+
+        <!-- MEMBER 4 HONEST LIMITATIONS -->
+        <div class="glass-card rounded-xl p-4 border border-slate-700">
+          <h4 class="text-xs font-bold text-amber-300 uppercase tracking-wide mb-2 flex items-center space-x-1.5">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>Member 4: Transparent Limitations & Viva Defense</span>
+          </h4>
+          <ul class="text-xs text-slate-300 space-y-2">
+            <li class="flex items-start space-x-2">
+              <i class="fa-solid fa-circle-check text-cyan-400 text-[10px] mt-1 shrink-0"></i>
+              <span><strong>Bootstrap Data:</strong> Public receipt/form corpora prove the mathematics and code; real clinical relationships require approved hospital access.</span>
+            </li>
+            <li class="flex items-start space-x-2">
+              <i class="fa-solid fa-circle-check text-cyan-400 text-[10px] mt-1 shrink-0"></i>
+              <span><strong>Gated Corpora:</strong> MIMIC-III and n2c2 require signed Data Use Agreements, which is why STG rules are implemented via symbolic knowledge engineering.</span>
+            </li>
+            <li class="flex items-start space-x-2">
+              <i class="fa-solid fa-circle-check text-cyan-400 text-[10px] mt-1 shrink-0"></i>
+              <span><strong>Image Statistics vs LayoutLMv3:</strong> Classical whole-image features achieve ~91% accuracy; multimodal transformers (LayoutLMv3) are proposed for dense hospital records.</span>
+            </li>
+            <li class="flex items-start space-x-2">
+              <i class="fa-solid fa-circle-check text-cyan-400 text-[10px] mt-1 shrink-0"></i>
+              <span><strong>Targets are Design Goals:</strong> Poster metrics (90% Acc, 8% CER) represent operational specifications, not claims of clinical deployment.</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- CLINICIAN HUMAN-IN-THE-LOOP MODAL -->
+  <div id="clinicianModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-panel w-full max-w-lg rounded-2xl border border-slate-600 shadow-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-cyan-600 flex items-center justify-center text-white">
+            <i class="fa-solid fa-user-doctor"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Clinician Human-in-the-Loop Sign-Off</h3>
+            <p class="text-[11px] text-slate-400">Electronic Health Record (EHR) Verification Gate</p>
+          </div>
+        </div>
+        <button onclick="closeClinicianReviewModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1 font-semibold">Clinician Name</label>
+          <input type="text" id="revDoctorName" value="Dr. Rajesh Sharma, MD" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-cyan-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-semibold">Medical Council Reg. / License No.</label>
+          <input type="text" id="revDoctorReg" value="MCI-48291/DEL" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-cyan-500" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-semibold">Clinical Review Decision</label>
+          <select id="revDecision" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-cyan-500">
+            <option value="APPROVED_SAFE">Approve & Push to Hospital EHR</option>
+            <option value="OVERRIDE_DOSAGE">Override Dosage to ICMR Recommended Ceiling</option>
+            <option value="ESCALATE_TO_PHARMACY">Escalate to Hospital Pharmacy Safety Committee</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1 font-semibold">Clinical Rationale Notes</label>
+          <textarea id="revNotes" rows="3" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-cyan-500" placeholder="e.g. Verified with patient; dosage modified to 1000 mg BD to adhere to ICMR maximum safe ceiling."></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-3 border-t border-slate-700">
+        <button onclick="closeClinicianReviewModal()" class="px-4 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-800 transition">Cancel</button>
+        <button onclick="submitClinicianReview()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg transition">Submit & Record Sign-off</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APP LOGIC -->
+  <script>
+    let currentPipelineData = null;
+    let sampleDataCache = [];
+    let currentImageView = 'raw'; // 'raw', 'deskewed', 'binary'
+
+    document.addEventListener("DOMContentLoaded", () => {
+      fetchSamples();
+      fetchMetrics();
+      setupDropzone();
+    });
+
+    function switchTab(tab) {
+      const pView = document.getElementById("pipelineView");
+      const aView = document.getElementById("analyticsView");
+      const pBtn = document.getElementById("tabPipelineBtn");
+      const aBtn = document.getElementById("tabAnalyticsBtn");
+
+      if (tab === 'pipeline') {
+        pView.classList.remove("hidden");
+        aView.classList.add("hidden");
+        pBtn.classList.replace("text-slate-400", "text-white");
+        pBtn.classList.replace("bg-transparent", "bg-cyan-600");
+        aBtn.classList.replace("text-white", "text-slate-400");
+        aBtn.classList.replace("bg-cyan-600", "bg-transparent");
+      } else {
+        pView.classList.add("hidden");
+        aView.classList.remove("hidden");
+        aBtn.classList.replace("text-slate-400", "text-white");
+        aBtn.classList.add("bg-cyan-600");
+        pBtn.classList.replace("text-white", "text-slate-400");
+        pBtn.classList.remove("bg-cyan-600");
+      }
+    }
+
+    async function fetchSamples() {
+      try {
+        const res = await fetch('/api/samples');
+        const samples = await res.json();
+        sampleDataCache = samples;
+        const listEl = document.getElementById('sampleList');
+        listEl.innerHTML = '';
+
+        samples.forEach(s => {
+          const item = document.createElement('div');
+          item.className = 'glass-card hover:border-cyan-500/80 rounded-lg p-2.5 cursor-pointer transition flex items-center space-x-2.5 group';
+          item.onclick = () => loadSample(s.id);
+
+          item.innerHTML = `
+            <div class="w-7 h-7 rounded bg-slate-800 flex items-center justify-center text-xs shrink-0 group-hover:bg-cyan-600 group-hover:text-white transition">
+              <i class="fa-solid fa-file-medical"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-slate-200 truncate group-hover:text-cyan-300">${s.title}</div>
+              <div class="text-[10px] text-slate-400 flex items-center justify-between mt-0.5">
+                <span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] border border-emerald-500/30">${s.dataset_source}</span>
+                <span class="text-cyan-400 font-mono">Case #${s.id}</span>
+              </div>
+            </div>
+          `;
+          listEl.appendChild(item);
+        });
+
+        // Auto load first sample
+        if (samples.length > 0) {
+          loadSample(1);
+        }
+      } catch (err) {
+        console.error("Failed to load samples:", err);
+      }
+    }
+
+    async function loadSample(sampleId) {
+      const modelName = document.getElementById('modelSelector').value;
+      const sample = sampleDataCache.find(s => s.id === sampleId);
+      if (sample && document.getElementById('canvasDatasetBadge')) {
+        document.getElementById('canvasDatasetBadge').textContent = sample.dataset_source;
+      }
+      showLoadingState();
+      try {
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sample_id: sampleId, model_name: modelName })
+        });
+        const data = await res.json();
+        currentPipelineData = data;
+        renderPipeline(data);
+      } catch (err) {
+        alert("Failed to analyze sample: " + err);
+      }
+    }
+
+    function showLoadingState() {
+      document.getElementById('stgStatusText').textContent = "Ingesting & Analyzing Pipeline...";
+      document.getElementById('stgSummarySubtitle').textContent = "Running Quality assessment, Unit 2 classification, OCR, and ICMR STG compliance audit...";
+    }
+
+    function renderPipeline(data) {
+      // 1. Image
+      const imgEl = document.getElementById('mainDocImage');
+      const placeholder = document.getElementById('imagePlaceholder');
+      imgEl.src = data.original_image_base64;
+      imgEl.classList.remove('hidden');
+      placeholder.classList.add('hidden');
+      currentImageView = 'raw';
+      updateImageViewBtns();
+      clearBboxes();
+
+      // 2. STG Banner
+      const banner = document.getElementById('stgBanner');
+      const iconWrap = document.getElementById('stgIconWrapper');
+      const statusText = document.getElementById('stgStatusText');
+      const scoreBadge = document.getElementById('stgScoreBadge');
+      const subtitle = document.getElementById('stgSummarySubtitle');
+
+      const stg = data.stg_compliance;
+      const status = stg.overall_status;
+      const agrScore = Math.round(stg.clinician_agreement_score * 100);
+
+      scoreBadge.textContent = `Agreement: ${agrScore}% (Target \u2265 90%)`;
+
+      if (status === 'FULLY_COMPLIANT') {
+        banner.className = 'rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-emerald-950/40 border-emerald-500/60 gradient-border-green';
+        iconWrap.className = 'w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-emerald-600 text-white';
+        iconWrap.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+        statusText.textContent = "Fully Compliant with Clinical Guidelines";
+        statusText.className = "text-sm font-extrabold uppercase tracking-wide text-emerald-400";
+        subtitle.textContent = "All prescribed drugs, doses, durations, and lab indicators adhere to ICMR & MoHFW Standard Treatment Guidelines.";
+      } else if (status === 'NON_COMPLIANT_OVERDOSE') {
+        banner.className = 'rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-rose-950/40 border-rose-500/60 gradient-border-red';
+        iconWrap.className = 'w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-rose-600 text-white';
+        iconWrap.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+        statusText.textContent = "Critical STG Alert: Supratherapeutic Overdose Detected";
+        statusText.className = "text-sm font-extrabold uppercase tracking-wide text-rose-400";
+        subtitle.textContent = "Prescribed dose exceeds the ICMR maximum safe ceiling limit. High risk of adverse clinical event.";
+      } else if (status === 'CONTRAINDICATION_ALERT') {
+        banner.className = 'rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-rose-950/40 border-rose-500/60 gradient-border-red';
+        iconWrap.className = 'w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-rose-600 text-white';
+        iconWrap.innerHTML = '<i class="fa-solid fa-hand"></i>';
+        statusText.textContent = "Critical STG Alert: Contraindication / Dual RAS Blockade";
+        statusText.className = "text-sm font-extrabold uppercase tracking-wide text-rose-400";
+        subtitle.textContent = "Dangerous drug-drug interaction or organ contraindication detected. Requires immediate physician review.";
+      } else if (status === 'NON_COMPLIANT_STEWARDSHIP') {
+        banner.className = 'rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-amber-950/40 border-amber-500/60 gradient-border-yellow';
+        iconWrap.className = 'w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-amber-600 text-white';
+        iconWrap.innerHTML = '<i class="fa-solid fa-capsules"></i>';
+        statusText.textContent = "STG Warning: Antimicrobial Stewardship Flag";
+        statusText.className = "text-sm font-extrabold uppercase tracking-wide text-amber-400";
+        subtitle.textContent = "Unwarranted broad-spectrum antibiotic prescribed without documented bacterial infection indication.";
+      } else {
+        banner.className = 'rounded-xl p-4 border transition-all duration-300 flex items-start justify-between shadow-lg bg-blue-950/40 border-blue-500/60 gradient-border-blue';
+        iconWrap.className = 'w-10 h-10 rounded-lg flex items-center justify-center text-xl shrink-0 bg-blue-600 text-white';
+        iconWrap.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
+        statusText.textContent = "Standard Clinical Record Processing";
+        statusText.className = "text-sm font-extrabold uppercase tracking-wide text-blue-400";
+        subtitle.textContent = "Standard billing/administrative document. No medication anomalies detected.";
+      }
+
+      // 3. Quality Cards
+      const q = data.quality;
+      document.getElementById('qualityBadge').textContent = q.status;
+      document.getElementById('qualityBadge').className = `text-[10px] font-bold px-1.5 py-0.5 rounded ${q.status === 'EXCELLENT' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`;
+      document.getElementById('valLaplacian').textContent = `${q.laplacian_variance} ${q.is_blurry ? '(Blur)' : '(Sharp)'}`;
+      document.getElementById('valSkew').textContent = `${q.skew_angle_deg}°`;
+      document.getElementById('valContrast').textContent = `${q.contrast.rms_contrast}`;
+      document.getElementById('valHfRatio').textContent = `${q.hf_ratio}`;
+
+      // 4. Classification
+      const c = data.classification;
+      document.getElementById('canvasTypeBadge').textContent = c.predicted_class;
+      document.getElementById('valDocClass').textContent = c.predicted_class;
+      document.getElementById('classConfBadge').textContent = `${Math.round(c.confidence * 100)}% Conf`;
+      document.getElementById('valModelUsed').textContent = `Algorithm: ${c.used_model}`;
+      document.getElementById('classProbBar').style.width = `${Math.round(c.confidence * 100)}%`;
+
+      // 5. Triage
+      const prov = data.provenance;
+      const isPriority = c.priority_queue === 'PRIORITY_VERIFICATION' || prov.human_review_required;
+      document.getElementById('triageBadge').textContent = isPriority ? 'Priority Verification' : 'Standard Auto';
+      document.getElementById('triageBadge').className = `text-[10px] font-bold px-1.5 py-0.5 rounded ${isPriority ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}`;
+      document.getElementById('valFieldConf').textContent = `${Math.round(prov.mean_field_confidence * 100)}%`;
+      document.getElementById('valProvHash').textContent = prov.provenance_hash;
+      document.getElementById('valTriageStatus').textContent = prov.triage_verdict.replace(/_/g, ' ');
+
+      // 6. OCR Text & tokens
+      document.getElementById('ocrFullText').textContent = data.ocr.full_text;
+      document.getElementById('ocrMetaBadge').textContent = `${data.ocr.token_count} Tokens | ${Math.round(data.ocr.mean_confidence * 100)}% Conf`;
+
+      // 7. STG Rule Cards
+      renderStgRules(stg.audit_trail);
+
+      // 8. Demographics & Entities
+      renderPatientDemographics(data.entities);
+      renderProvenanceTable(prov.provenance_records);
+    }
+
+    function renderStgRules(rules) {
+      const container = document.getElementById('stgAuditList');
+      document.getElementById('ruleCountBadge').textContent = `${rules.length} Rules Evaluated`;
+      container.innerHTML = '';
+
+      if (!rules || rules.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 py-3 text-center">No guideline rules triggered.</div>';
+        return;
+      }
+
+      rules.forEach(r => {
+        const card = document.createElement('div');
+        const isFail = r.status === 'FAIL';
+        const isWarn = r.status === 'WARNING';
+        const borderClass = isFail ? 'gradient-border-red bg-rose-950/20' : (isWarn ? 'gradient-border-yellow bg-amber-950/20' : 'gradient-border-green bg-emerald-950/20');
+        const badgeColor = isFail ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : (isWarn ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40');
+
+        card.className = `glass-card rounded-lg p-3 border border-slate-700/80 text-xs ${borderClass}`;
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center space-x-2">
+              <span class="font-mono text-[10px] text-slate-400 font-bold">${r.rule_id}</span>
+              <span class="text-slate-300 font-semibold">${r.drug || r.diagnosis}</span>
+            </div>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded border ${badgeColor}">${r.status} (${r.severity})</span>
+          </div>
+          <p class="text-slate-200 font-medium">${r.issue}</p>
+          <p class="text-[11px] text-slate-400 mt-1"><i class="fa-solid fa-triangle-exclamation text-amber-400 text-[10px] mr-1"></i>${r.clinical_risk}</p>
+          <div class="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+            <span><i class="fa-solid fa-book-medical mr-1 text-cyan-400"></i><strong>Ref:</strong> ${r.guideline_ref}</span>
+            <span class="font-mono text-cyan-300">${r.section || ''}</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderPatientDemographics(entities) {
+      const p = entities.patient || {};
+      const enc = entities.encounter || {};
+      document.getElementById('fieldPtName').textContent = p.name ? p.name.value : 'N/A';
+      document.getElementById('fieldPtAgeGen').textContent = `${p.age ? p.age.value + ' Y' : '--'} / ${p.gender ? p.gender.value : '--'}`;
+      document.getElementById('fieldPtUhid').textContent = p.uhid ? p.uhid.value : 'MGH-2026-GEN';
+      document.getElementById('fieldPtDoc').textContent = enc.doctor ? enc.doctor.value : 'Internal Medicine';
+    }
+
+    function renderProvenanceTable(records) {
+      const tbody = document.getElementById('provenanceTableBody');
+      tbody.innerHTML = '';
+
+      if (!records || records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">No records found.</td></tr>';
+        return;
+      }
+
+      records.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-800/60 cursor-pointer transition';
+        const isFlagged = r.action === 'FLAGGED_FOR_HUMAN_REVIEW';
+        const statusBadge = isFlagged
+          ? '<span class="text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">Review Req</span>'
+          : '<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Auto Valid</span>';
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-semibold text-slate-400">${r.field_group}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-200">${r.field_name}</td>
+          <td class="py-2.5 px-3 text-slate-300 font-mono text-[11px]">${r.extracted_value}</td>
+          <td class="py-2.5 px-3 font-mono font-semibold ${r.composite_confidence >= 0.85 ? 'text-emerald-400' : 'text-rose-400'}">
+            ${Math.round(r.composite_confidence * 100)}%
+          </td>
+          <td class="py-2.5 px-3">${statusBadge}</td>
+        `;
+
+        // Hover bounding box highlight
+        if (r.bbox) {
+          tr.onmouseenter = () => highlightBbox(r.bbox);
+          tr.onmouseleave = () => clearBboxes();
+        }
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    function highlightBbox(bbox) {
+      const overlay = document.getElementById('bboxOverlay');
+      overlay.innerHTML = '';
+      const img = document.getElementById('mainDocImage');
+      if (!img.naturalWidth) return;
+
+      const scaleX = img.clientWidth / img.naturalWidth;
+      const scaleY = img.clientHeight / img.naturalHeight;
+
+      const [x1, y1, x2, y2] = bbox;
+      const box = document.createElement('div');
+      box.className = 'bbox-highlight';
+      box.style.left = `${x1 * scaleX}px`;
+      box.style.top = `${y1 * scaleY}px`;
+      box.style.width = `${(x2 - x1) * scaleX}px`;
+      box.style.height = `${(y2 - y1) * scaleY}px`;
+
+      overlay.appendChild(box);
+    }
+
+    function clearBboxes() {
+      document.getElementById('bboxOverlay').innerHTML = '';
+    }
+
+    function toggleOcrDrawer() {
+      const drawer = document.getElementById('ocrDrawer');
+      drawer.classList.toggle('hidden');
+    }
+
+    function toggleImageView(view) {
+      if (!currentPipelineData) return;
+      currentImageView = view;
+      const img = document.getElementById('mainDocImage');
+      if (view === 'raw') {
+        img.src = currentPipelineData.original_image_base64;
+      } else if (view === 'deskewed') {
+        img.src = currentPipelineData.preprocessed_image_base64;
+      } else if (view === 'binary') {
+        img.src = currentPipelineData.binary_image_base64;
+      }
+      updateImageViewBtns();
+    }
+
+    function updateImageViewBtns() {
+      const rawBtn = document.getElementById('viewRawBtn');
+      const deskewedBtn = document.getElementById('viewDeskewedBtn');
+      const binaryBtn = document.getElementById('viewBinaryBtn');
+
+      [rawBtn, deskewedBtn, binaryBtn].forEach(b => {
+        b.className = 'px-2 py-0.5 rounded text-slate-400 hover:text-white font-medium';
+      });
+
+      if (currentImageView === 'raw') rawBtn.className = 'px-2 py-0.5 rounded bg-cyan-600 text-white font-medium';
+      if (currentImageView === 'deskewed') deskewedBtn.className = 'px-2 py-0.5 rounded bg-cyan-600 text-white font-medium';
+      if (currentImageView === 'binary') binaryBtn.className = 'px-2 py-0.5 rounded bg-cyan-600 text-white font-medium';
+    }
+
+    function setupDropzone() {
+      const dropzone = document.getElementById('dropzone');
+      const fileInput = document.getElementById('fileInput');
+
+      dropzone.onclick = () => fileInput.click();
+
+      fileInput.onchange = (e) => {
+        if (e.target.files.length > 0) {
+          uploadFile(e.target.files[0]);
+        }
+      };
+
+      dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add('border-cyan-400'); };
+      dropzone.ondragleave = () => dropzone.classList.remove('border-cyan-400');
+      dropzone.ondrop = (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('border-cyan-400');
+        if (e.dataTransfer.files.length > 0) {
+          uploadFile(e.dataTransfer.files[0]);
+        }
+      };
+    }
+
+    async function uploadFile(file) {
+      showLoadingState();
+      const modelName = document.getElementById('modelSelector').value;
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('model_name', modelName);
+
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        currentPipelineData = data;
+        renderPipeline(data);
+      } catch (err) {
+        alert("Upload analysis failed: " + err);
+      }
+    }
+
+    async function fetchMetrics() {
+      try {
+        const res = await fetch('/api/metrics');
+        const meta = await res.json();
+        if (meta.error) return;
+
+        // Render table
+        const tbody = document.getElementById('metricsTableBody');
+        tbody.innerHTML = '';
+
+        for (const [mName, mData] of Object.entries(meta.metrics)) {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-slate-900 transition';
+          const ecePass = mData.ece < 0.05;
+
+          tr.innerHTML = `
+            <td class="py-2.5 px-3 font-bold text-white flex items-center space-x-2">
+              <span class="w-2 h-2 rounded-full ${mName === 'Logistic Regression' ? 'bg-cyan-400' : 'bg-slate-500'}"></span>
+              <span>${mName}</span>
+            </td>
+            <td class="py-2.5 px-3 font-mono font-semibold text-cyan-300">${(mData.accuracy * 100).toFixed(2)}%</td>
+            <td class="py-2.5 px-3 font-mono">${(mData.precision * 100).toFixed(2)}%</td>
+            <td class="py-2.5 px-3 font-mono">${(mData.recall * 100).toFixed(2)}%</td>
+            <td class="py-2.5 px-3 font-mono font-semibold text-emerald-400">${mData.f1_score.toFixed(4)}</td>
+            <td class="py-2.5 px-3 font-mono text-purple-300">${mData.roc_auc.toFixed(4)}</td>
+            <td class="py-2.5 px-3 font-mono ${ecePass ? 'text-emerald-400 font-bold' : 'text-amber-400'}">${mData.ece.toFixed(4)}</td>
+            <td class="py-2.5 px-3">
+              <span class="text-[10px] px-2 py-0.5 rounded ${ecePass ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-300'}">
+                ${ecePass ? 'Pass (< 0.05)' : 'Baseline'}
+              </span>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        // Render MLE math
+        const mle = meta.laplacian_mle_analysis;
+        if (mle) {
+          document.getElementById('mleMu').textContent = mle.mu_mle;
+          document.getElementById('mleVar').textContent = mle.sigma2_mle;
+          document.getElementById('mleUnbiased').textContent = mle.sigma2_unbiased;
+          document.getElementById('mleBias').textContent = mle.bias_factor;
+        }
+
+      } catch (err) {
+        console.error("Failed to load metrics:", err);
+      }
+    }
+
+    function openClinicianReviewModal() {
+      document.getElementById('clinicianModal').classList.remove('hidden');
+    }
+
+    function closeClinicianReviewModal() {
+      document.getElementById('clinicianModal').classList.add('hidden');
+    }
+
+    async function submitClinicianReview() {
+      const docName = document.getElementById('revDoctorName').value;
+      const docReg = document.getElementById('revDoctorReg').value;
+      const decision = document.getElementById('revDecision').value;
+      const notes = document.getElementById('revNotes').value;
+
+      try {
+        const res = await fetch('/api/review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            document_id: currentPipelineData ? currentPipelineData.provenance.provenance_hash : 'DOC-01',
+            clinician_name: docName,
+            clinician_license: docReg,
+            decision: decision,
+            notes: notes
+          })
+        });
+        const resp = await res.json();
+        alert(resp.message);
+        closeClinicianReviewModal();
+      } catch (err) {
+        alert("Failed to record sign-off: " + err);
+      }
+    }
+  </script>
+</body>
+</html>
